@@ -1,0 +1,16 @@
+// Declaración múltiple con y sin inicialización
+int i = 1, pares = 0, resto;
+
+System.Out.Println("Analizando numeros del 1 al 6:");
+
+WHILE (i <= 6) {
+    resto = i % 2;
+    IF (resto == 0) {
+        System.Out.Println(i);
+        pares++;
+    }
+    i++;
+}
+
+System.Out.Println("Total de numeros pares encontrados:");
+System.Out.Println(pares);

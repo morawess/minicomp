@@ -1,0 +1,335 @@
+import java_cup.runtime.Symbol;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+parser code {:
+    Map<String, String> tablaDeSimbolos = new LinkedHashMap<>();
+    List<String> erroresSemanticos = new ArrayList<>();
+    StringBuilder datos = new StringBuilder();
+    int contador = 0;
+
+    static class Valor {
+        String tipo, codigo;
+        Valor(String tipo, String codigo) { this.tipo = tipo; this.codigo = codigo; }
+    }
+
+    static class DeclItem {
+        String id;
+        int linea;
+        Valor valor;
+        DeclItem(String id, int linea, Valor valor) {
+            this.id = id; this.linea = linea; this.valor = valor;
+        }
+    }
+
+    void errorSemantico(int linea, String mensaje) {
+        erroresSemanticos.add("Error semántico en línea " + linea + ": " + mensaje);
+    }
+
+    String nuevaEtiqueta(String prefijo) {
+        return prefijo + (contador++);
+    }
+
+    Valor operarAritmetico(Valor a, Valor b, String op, int linea) {
+        if (!a.tipo.equals("error") && !b.tipo.equals("error")) {
+            if (!a.tipo.equals("int") || !b.tipo.equals("int")) {
+                errorSemantico(linea, "el operador '" + op + "' requiere operandos int, pero recibió " + a.tipo + " y " + b.tipo);
+                return new Valor("error", "");
+            }
+        }
+        StringBuilder cod = new StringBuilder();
+        cod.append(a.codigo);
+        cod.append("    addi $sp, $sp, -4\n    sw   $t0, 0($sp)\n");
+        cod.append(b.codigo);
+        cod.append("    move $t1, $t0\n    lw   $t0, 0($sp)\n    addi $sp, $sp, 4\n");
+        switch (op) {
+            case "+": cod.append("    add  $t0, $t0, $t1\n"); break;
+            case "-": cod.append("    sub  $t0, $t0, $t1\n"); break;
+            case "*": cod.append("    mul  $t0, $t0, $t1\n"); break;
+            case "/": cod.append("    div  $t0, $t1\n    mflo $t0\n"); break;
+            case "%": cod.append("    div  $t0, $t1\n    mfhi $t0\n"); break;
+        }
+        return new Valor("int", cod.toString());
+    }
+
+    Valor operarRelacional(Valor a, Valor b, String instMips, String opTexto, boolean soloEnteros, int linea) {
+        if (!a.tipo.equals("error") && !b.tipo.equals("error")) {
+            if (soloEnteros && (!a.tipo.equals("int") || !b.tipo.equals("int"))) {
+                errorSemantico(linea, "el operador '" + opTexto + "' requiere operandos int, pero recibió " + a.tipo + " y " + b.tipo);
+                return new Valor("error", "");
+            } else if (!soloEnteros && !a.tipo.equals(b.tipo)) {
+                errorSemantico(linea, "no se pueden comparar tipos distintos (" + a.tipo + " y " + b.tipo + ") con '" + opTexto + "'");
+                return new Valor("error", "");
+            }
+        }
+        String cod = a.codigo
+                   + "    addi $sp, $sp, -4\n    sw   $t0, 0($sp)\n"
+                   + b.codigo
+                   + "    move $t1, $t0\n    lw   $t0, 0($sp)\n    addi $sp, $sp, 4\n"
+                   + "    " + instMips + "  $t0, $t0, $t1\n";
+        return new Valor("boolean", cod);
+    }
+
+    List<String> tokensEsperados() {
+        List<String> esperados = new ArrayList<>();
+        short[] fila = action_tab[((Symbol) stack.peek()).parse_state];
+        for (int i = 0; i + 1 < fila.length; i += 2)
+            if (fila[i] > sym.error && fila[i + 1] != 0) esperados.add(sym.terminalNames[fila[i]]);
+        return esperados;
+    }
+
+    @Override
+    public void syntax_error(Symbol s) {
+        List<String> esperados = tokensEsperados();
+        if (s.sym == sym.EOF)
+            System.out.println("Error sintáctico: el archivo terminó antes de tiempo. Se esperaba: " + esperados);
+        else
+            System.out.println("Error sintáctico en línea " + s.left + ", columna " + s.right + ": no se esperaba "
+                               + sym.terminalNames[s.sym] + " ('" + s.value + "'). Se esperaba: " + esperados);
+    }
+
+    @Override
+    public void unrecovered_syntax_error(Symbol s) {
+        System.exit(1);
+    }
+
+    public static void main(String[] args) throws Exception {
+        String entrada = args.length > 0 ? args[0] : "programa.txt";
+        String salida = entrada.replaceAll("\\.[^.]*$", "") + ".asm";
+
+        System.out.println("=== Tokens (JFlex) ===");
+        Lexer lexer = new Lexer(new FileReader(entrada));
+        for (Symbol t = lexer.next_token(); t.sym != sym.EOF; t = lexer.next_token())
+            System.out.printf("  línea %-3d %-14s %s%n", t.left, sym.terminalNames[t.sym], t.value);
+
+        Parser parser = new Parser(new Lexer(new FileReader(entrada)));
+        String codigo = (String) parser.parse().value;
+        System.out.println("\n=== Análisis sintáctico (CUP): OK ===");
+
+        System.out.println("\n=== Tabla de símbolos ===");
+        for (Map.Entry<String, String> e : parser.tablaDeSimbolos.entrySet())
+            System.out.println("  " + e.getKey() + " : " + e.getValue());
+        if (!parser.erroresSemanticos.isEmpty()) {
+            System.out.println();
+            for (String e : parser.erroresSemanticos) System.out.println(e);
+            System.exit(1);
+        }
+        System.out.println("\n=== Análisis semántico: OK ===");
+
+        try (FileWriter w = new FileWriter(salida)) {
+            w.write(".data\n" + parser.datos + "\n.text\n.globl main\nmain:\n" + codigo
+                    + "    li   $v0, 10          # fin del programa\n    syscall\n");
+        }
+        System.out.println("\n=== Código MIPS generado en: " + salida + " ===");
+    }
+:};
+
+terminal          IMPRIMIR, IF, ELSE, WHILE, BOOLEAN, INT;
+terminal          MAS, MENOS, POR, DIV, MOD, INC;
+terminal          MAYOR, MENOR, MAYIG, MENIG, IGUAL, DIST;
+terminal          ASIG, COMA, PYC, LPAREN, RPAREN, LLAVEA, LLAVEC;
+terminal String   ID, CADENA;
+terminal Boolean  LIT_BOOLEANO;
+terminal Integer  LIT_ENTERO;
+
+non terminal String                  programa, lista, sentencia, declaracion, asignacion, incremento;
+non terminal String                  impresion, condicional, bucle_while, bloque, tipo;
+non terminal List<Parser.DeclItem>   lista_vars;
+non terminal Parser.DeclItem         var_decl;
+non terminal Parser.Valor            condicion, expr, termino, factor;
+
+start with programa;
+
+programa    ::= lista:c                                   {: RESULT = c; :}
+              ;
+
+lista       ::= lista:a sentencia:b                       {: RESULT = a + b; :}
+              | sentencia:s                               {: RESULT = s; :}
+              ;
+
+sentencia   ::= declaracion:s                             {: RESULT = s; :}
+              | asignacion:s                              {: RESULT = s; :}
+              | incremento:s                              {: RESULT = s; :}
+              | impresion:s                               {: RESULT = s; :}
+              | condicional:s                             {: RESULT = s; :}
+              | bucle_while:s                             {: RESULT = s; :}
+              ;
+
+/* ---------- Declaración simple y múltiple: int a, b = 0; ---------- */
+declaracion ::= tipo:t lista_vars:vars PYC
+                {:
+                    StringBuilder cod = new StringBuilder();
+                    for (Parser.DeclItem item : vars) {
+                        if (parser.tablaDeSimbolos.containsKey(item.id)) {
+                            parser.errorSemantico(item.linea, "la variable '" + item.id + "' ya fue declarada");
+                        } else {
+                            parser.tablaDeSimbolos.put(item.id, t);
+                            parser.datos.append("    v_" + item.id + ": .word 0\n");
+                            if (item.valor != null) {
+                                if (!item.valor.tipo.equals("error") && !t.equals(item.valor.tipo)) {
+                                    parser.errorSemantico(item.linea, "no se puede asignar un valor " + item.valor.tipo
+                                                                      + " a la variable '" + item.id + "' de tipo " + t);
+                                }
+                                cod.append("    # " + t + " " + item.id + " = ...\n")
+                                   .append(item.valor.codigo)
+                                   .append("    sw   $t0, v_" + item.id + "\n");
+                            } else {
+                                cod.append("    # " + t + " " + item.id + " (inicializada en 0)\n");
+                            }
+                        }
+                    }
+                    RESULT = cod.toString();
+                :}
+              ;
+
+lista_vars  ::= lista_vars:l COMA var_decl:v              {: l.add(v); RESULT = l; :}
+              | var_decl:v                                {: List<Parser.DeclItem> l = new ArrayList<>(); l.add(v); RESULT = l; :}
+              ;
+
+var_decl    ::= ID:id ASIG expr:v                         {: RESULT = new Parser.DeclItem(id, idleft, v); :}
+              | ID:id                                     {: RESULT = new Parser.DeclItem(id, idleft, null); :}
+              ;
+
+tipo        ::= BOOLEAN                                   {: RESULT = "boolean"; :}
+              | INT                                       {: RESULT = "int"; :}
+              ;
+
+/* ---------- Asignación: a = expr; ---------- */
+asignacion  ::= ID:id ASIG expr:v PYC
+                {:
+                    String t = parser.tablaDeSimbolos.get(id);
+                    if (t == null) {
+                        parser.errorSemantico(idleft, "la variable '" + id + "' no fue declarada");
+                    } else if (!v.tipo.equals("error") && !t.equals(v.tipo)) {
+                        parser.errorSemantico(idleft, "no se puede asignar un valor " + v.tipo
+                                                      + " a la variable '" + id + "' de tipo " + t);
+                    }
+                    RESULT = "    # " + id + " = ...\n"
+                           + v.codigo
+                           + "    sw   $t0, v_" + id + "\n";
+                :}
+              ;
+
+/* ---------- Incremento: i++; ---------- */
+incremento  ::= ID:id INC PYC
+                {:
+                    String t = parser.tablaDeSimbolos.get(id);
+                    if (t == null) {
+                        parser.errorSemantico(idleft, "la variable '" + id + "' no fue declarada");
+                    } else if (!t.equals("int")) {
+                        parser.errorSemantico(idleft, "el operador '++' solo se aplica a variables int, pero '" + id + "' es " + t);
+                    }
+                    RESULT = "    # " + id + "++\n"
+                           + "    lw   $t0, v_" + id + "\n"
+                           + "    addi $t0, $t0, 1\n"
+                           + "    sw   $t0, v_" + id + "\n";
+                :}
+              ;
+
+/* ---------- Impresión de cadenas o expresiones ---------- */
+impresion   ::= IMPRIMIR LPAREN CADENA:s RPAREN PYC
+                {:
+                    String etiqueta = parser.nuevaEtiqueta("texto");
+                    parser.datos.append("    " + etiqueta + ": .asciiz \"" + s + "\\n\"\n");
+                    RESULT = "    # System.Out.Println(\"" + s + "\")\n"
+                           + "    la   $a0, " + etiqueta + "\n"
+                           + "    li   $v0, 4\n"
+                           + "    syscall\n";
+                :}
+              | IMPRIMIR LPAREN expr:e RPAREN PYC
+                {:
+                    RESULT = "    # System.Out.Println(expr)\n"
+                           + e.codigo
+                           + "    move $a0, $t0\n"
+                           + "    li   $v0, 1           # syscall print_int\n"
+                           + "    syscall\n"
+                           + "    li   $a0, 10          # salto de línea\n"
+                           + "    li   $v0, 11          # syscall print_char\n"
+                           + "    syscall\n";
+                :}
+              ;
+
+/* ---------- Condicional IF / ELSE ---------- */
+condicional ::= IF LPAREN condicion:c RPAREN bloque:entonces
+                {:
+                    if (!c.tipo.equals("boolean") && !c.tipo.equals("error"))
+                        parser.errorSemantico(cleft, "la condición del IF tiene que ser boolean, pero es " + c.tipo);
+                    String fin = parser.nuevaEtiqueta("fin_if");
+                    RESULT = "    # IF\n" + c.codigo
+                           + "    beqz $t0, " + fin + "\n"
+                           + entonces
+                           + fin + ":\n";
+                :}
+              | IF LPAREN condicion:c RPAREN bloque:entonces ELSE bloque:sino
+                {:
+                    if (!c.tipo.equals("boolean") && !c.tipo.equals("error"))
+                        parser.errorSemantico(cleft, "la condición del IF tiene que ser boolean, pero es " + c.tipo);
+                    String etElse = parser.nuevaEtiqueta("else_"), fin = parser.nuevaEtiqueta("fin_if");
+                    RESULT = "    # IF-ELSE\n" + c.codigo
+                           + "    beqz $t0, " + etElse + "\n"
+                           + entonces
+                           + "    j    " + fin + "\n"
+                           + etElse + ":\n"
+                           + sino
+                           + fin + ":\n";
+                :}
+              ;
+
+/* ---------- Bucle WHILE ---------- */
+bucle_while ::= WHILE LPAREN condicion:c RPAREN bloque:cuerpo
+                {:
+                    if (!c.tipo.equals("boolean") && !c.tipo.equals("error"))
+                        parser.errorSemantico(cleft, "la condición del WHILE tiene que ser boolean, pero es " + c.tipo);
+                    String ini = parser.nuevaEtiqueta("inicio_while_");
+                    String fin = parser.nuevaEtiqueta("fin_while_");
+                    RESULT = "    # WHILE\n"
+                           + ini + ":\n"
+                           + c.codigo
+                           + "    beqz $t0, " + fin + "\n"
+                           + cuerpo
+                           + "    j    " + ini + "\n"
+                           + fin + ":\n";
+                :}
+              ;
+
+condicion   ::= expr:a MAYOR expr:b                       {: RESULT = parser.operarRelacional(a, b, "sgt", ">", true, aleft); :}
+              | expr:a MENOR expr:b                       {: RESULT = parser.operarRelacional(a, b, "slt", "<", true, aleft); :}
+              | expr:a MAYIG expr:b                       {: RESULT = parser.operarRelacional(a, b, "sge", ">=", true, aleft); :}
+              | expr:a MENIG expr:b                       {: RESULT = parser.operarRelacional(a, b, "sle", "<=", true, aleft); :}
+              | expr:a IGUAL expr:b                       {: RESULT = parser.operarRelacional(a, b, "seq", "==", false, aleft); :}
+              | expr:a DIST  expr:b                       {: RESULT = parser.operarRelacional(a, b, "sne", "!=", false, aleft); :}
+              | expr:e                                    {: RESULT = e; :}
+              ;
+
+expr        ::= expr:a MAS termino:b                      {: RESULT = parser.operarAritmetico(a, b, "+", aleft); :}
+              | expr:a MENOS termino:b                    {: RESULT = parser.operarAritmetico(a, b, "-", aleft); :}
+              | termino:t                                 {: RESULT = t; :}
+              ;
+
+termino     ::= termino:a POR factor:b                    {: RESULT = parser.operarAritmetico(a, b, "*", aleft); :}
+              | termino:a DIV factor:b                    {: RESULT = parser.operarAritmetico(a, b, "/", aleft); :}
+              | termino:a MOD factor:b                    {: RESULT = parser.operarAritmetico(a, b, "%", aleft); :}
+              | factor:f                                  {: RESULT = f; :}
+              ;
+
+factor      ::= LPAREN expr:e RPAREN                      {: RESULT = e; :}
+              | ID:id
+                {:
+                    String t = parser.tablaDeSimbolos.get(id);
+                    if (t == null) {
+                        parser.errorSemantico(idleft, "la variable '" + id + "' no fue declarada");
+                        t = "error";
+                    }
+                    RESULT = new Parser.Valor(t, "    lw   $t0, v_" + id + "\n");
+                :}
+              | LIT_ENTERO:n                              {: RESULT = new Parser.Valor("int", "    li   $t0, " + n + "\n"); :}
+              | LIT_BOOLEANO:b                            {: RESULT = new Parser.Valor("boolean", "    li   $t0, " + (b ? 1 : 0) + "\n"); :}
+              ;
+
+bloque      ::= LLAVEA lista:c LLAVEC                     {: RESULT = c; :}
+              | LLAVEA LLAVEC                             {: RESULT = ""; :}
+              ;

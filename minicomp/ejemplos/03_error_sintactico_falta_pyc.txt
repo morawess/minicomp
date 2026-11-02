@@ -1,0 +1,10 @@
+// Error SINTÁCTICO: falta el ; al final del Println de la línea 5
+boolean flag = true;
+System.Out.Println("Inicio del Programa");
+IF (flag){
+System.Out.Println ("Hola Mundo!")
+}
+ELSE {
+System.Out.Println ("Error");
+}
+System.Out.Println("Final del Programa");

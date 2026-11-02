@@ -1,0 +1,9 @@
+boolean flag = false;
+System.Out.Println("Inicio del Programa");
+IF (flag){
+System.Out.Println ("Hola Mundo!");
+}
+ELSE {
+System.Out.Println ("Error");
+}
+System.Out.Println("Final del Programa");

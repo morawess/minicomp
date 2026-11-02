@@ -1,0 +1,10 @@
+// Error SEMÁNTICO: a una variable boolean se le asigna un int
+boolean flag = 5;
+System.Out.Println("Inicio del Programa");
+IF (flag){
+System.Out.Println ("Hola Mundo!");
+}
+ELSE {
+System.Out.Println ("Error");
+}
+System.Out.Println("Final del Programa");

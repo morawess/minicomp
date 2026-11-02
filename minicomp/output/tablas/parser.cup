@@ -1,0 +1,67 @@
+/* Generado por minicomp a partir de la gramática del TP2 — entrada de CUP */
+import java_cup.runtime.Symbol;
+import java.util.ArrayList;
+import java.util.List;
+import minicomp.Nodo;
+
+parser code {:
+    public List<String> errores = new ArrayList<>();
+
+    @Override
+    public void syntax_error(Symbol s) {
+        List<String> esperados = new ArrayList<>();
+        for (Integer id : expected_token_ids()) esperados.add(sym.terminalNames[id]);
+        String esperaba = esperados.isEmpty() ? "" : " — se esperaba: " + String.join(", ", esperados);
+        if (s.sym == sym.EOF) {
+            errores.add("Error sintáctico: el archivo terminó antes de tiempo" + esperaba);
+        } else {
+            errores.add("Error sintáctico en línea " + s.left + ", columna " + s.right
+                        + ": no se esperaba " + sym.terminalNames[s.sym] + " ('" + s.value + "')" + esperaba);
+        }
+    }
+
+    @Override
+    public int error_sync_size() { return 1; }
+
+    @Override
+    public void unrecovered_syntax_error(Symbol s) {
+        errores.add("No se pudo recuperar del error sintáctico; se abandona el análisis.");
+    }
+:};
+
+terminal Object T_ENTERO, T_BOOLEANO, IMPRIMIR, IF, ELSE, ID, LIT_ENTERO, LIT_CADENA, LIT_BOOLEANO, ASIG, LPAREN, RPAREN, PYC, LLAVEA, LLAVEC;
+
+non terminal Nodo programa, lista, sentencia, declaracion, tipo, valor, impresion, condicional, condicion, bloque;
+
+start with programa;
+
+programa     ::= lista:s1 {: RESULT = Nodo.nt("programa", s1); :}
+               ;
+lista        ::= lista:s1 sentencia:s2 {: RESULT = Nodo.nt("lista", s1, s2); :}
+               | sentencia:s1 {: RESULT = Nodo.nt("lista", s1); :}
+               ;
+sentencia    ::= declaracion:s1 {: RESULT = Nodo.nt("sentencia", s1); :}
+               | impresion:s1 {: RESULT = Nodo.nt("sentencia", s1); :}
+               | condicional:s1 {: RESULT = Nodo.nt("sentencia", s1); :}
+               ;
+declaracion  ::= tipo:s1 ID:s2 ASIG:s3 valor:s4 PYC:s5 {: RESULT = Nodo.nt("declaracion", s1, Nodo.t("ID", s2, s2left, s2right), Nodo.t("ASIG", s3, s3left, s3right), s4, Nodo.t("PYC", s5, s5left, s5right)); :}
+               ;
+tipo         ::= T_BOOLEANO:s1 {: RESULT = Nodo.nt("tipo", Nodo.t("T_BOOLEANO", s1, s1left, s1right)); :}
+               | T_ENTERO:s1 {: RESULT = Nodo.nt("tipo", Nodo.t("T_ENTERO", s1, s1left, s1right)); :}
+               ;
+valor        ::= LIT_BOOLEANO:s1 {: RESULT = Nodo.nt("valor", Nodo.t("LIT_BOOLEANO", s1, s1left, s1right)); :}
+               | LIT_ENTERO:s1 {: RESULT = Nodo.nt("valor", Nodo.t("LIT_ENTERO", s1, s1left, s1right)); :}
+               ;
+impresion    ::= IMPRIMIR:s1 LPAREN:s2 LIT_CADENA:s3 RPAREN:s4 PYC:s5 {: RESULT = Nodo.nt("impresion", Nodo.t("IMPRIMIR", s1, s1left, s1right), Nodo.t("LPAREN", s2, s2left, s2right), Nodo.t("LIT_CADENA", s3, s3left, s3right), Nodo.t("RPAREN", s4, s4left, s4right), Nodo.t("PYC", s5, s5left, s5right)); :}
+               ;
+condicional  ::= IF:s1 LPAREN:s2 condicion:s3 RPAREN:s4 bloque:s5 {: RESULT = Nodo.nt("condicional", Nodo.t("IF", s1, s1left, s1right), Nodo.t("LPAREN", s2, s2left, s2right), s3, Nodo.t("RPAREN", s4, s4left, s4right), s5); :}
+               | IF:s1 LPAREN:s2 condicion:s3 RPAREN:s4 bloque:s5 ELSE:s6 bloque:s7 {: RESULT = Nodo.nt("condicional", Nodo.t("IF", s1, s1left, s1right), Nodo.t("LPAREN", s2, s2left, s2right), s3, Nodo.t("RPAREN", s4, s4left, s4right), s5, Nodo.t("ELSE", s6, s6left, s6right), s7); :}
+               | IF:s1 LPAREN:s2 condicion:s3 RPAREN:s4 bloque:s5 ELSE:s6 condicional:s7 {: RESULT = Nodo.nt("condicional", Nodo.t("IF", s1, s1left, s1right), Nodo.t("LPAREN", s2, s2left, s2right), s3, Nodo.t("RPAREN", s4, s4left, s4right), s5, Nodo.t("ELSE", s6, s6left, s6right), s7); :}
+               ;
+condicion    ::= ID:s1 {: RESULT = Nodo.nt("condicion", Nodo.t("ID", s1, s1left, s1right)); :}
+               | LIT_BOOLEANO:s1 {: RESULT = Nodo.nt("condicion", Nodo.t("LIT_BOOLEANO", s1, s1left, s1right)); :}
+               | LIT_ENTERO:s1 {: RESULT = Nodo.nt("condicion", Nodo.t("LIT_ENTERO", s1, s1left, s1right)); :}
+               ;
+bloque       ::= LLAVEA:s1 lista:s2 LLAVEC:s3 {: RESULT = Nodo.nt("bloque", Nodo.t("LLAVEA", s1, s1left, s1right), s2, Nodo.t("LLAVEC", s3, s3left, s3right)); :}
+               | LLAVEA:s1 LLAVEC:s2 {: RESULT = Nodo.nt("bloque", Nodo.t("LLAVEA", s1, s1left, s1right), Nodo.t("LLAVEC", s2, s2left, s2right)); :}
+               ;
