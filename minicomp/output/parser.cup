@@ -137,7 +137,7 @@ terminal Boolean  LIT_BOOLEANO;
 terminal Integer  LIT_ENTERO;
 
 non terminal String                  programa, lista, sentencia, declaracion, asignacion, incremento;
-non terminal String                  impresion, condicional, bucle_while, bloque, tipo;
+non terminal String                  impresion, contenido_impr, parte_impr, condicional, bucle_while, bloque, tipo;
 non terminal List<Parser.DeclItem>   lista_vars;
 non terminal Parser.DeclItem         var_decl;
 non terminal Parser.Valor            condicion, expr, termino, factor;
@@ -230,28 +230,63 @@ incremento  ::= ID:id INC PYC
                 :}
               ;
 
-/* ---------- Impresión de cadenas o expresiones ---------- */
-impresion   ::= IMPRIMIR LPAREN CADENA:s RPAREN PYC
-                {:
-                    String etiqueta = parser.nuevaEtiqueta("texto");
-                    parser.datos.append("    " + etiqueta + ": .asciiz \"" + s + "\\n\"\n");
-                    RESULT = "    # System.Out.Println(\"" + s + "\")\n"
-                           + "    la   $a0, " + etiqueta + "\n"
-                           + "    li   $v0, 4\n"
-                           + "    syscall\n";
-                :}
-              | IMPRIMIR LPAREN expr:e RPAREN PYC
-                {:
-                    RESULT = "    # System.Out.Println(expr)\n"
-                           + e.codigo
-                           + "    move $a0, $t0\n"
-                           + "    li   $v0, 1           # syscall print_int\n"
-                           + "    syscall\n"
-                           + "    li   $a0, 10          # salto de línea\n"
-                           + "    li   $v0, 11          # syscall print_char\n"
-                           + "    syscall\n";
-                :}
-              ;
+/* ---------- Impresión de cadenas, expresiones y concatenaciones con '+' ---------- */
+impresion       ::= IMPRIMIR LPAREN contenido_impr:c RPAREN PYC
+                    {:
+                        RESULT = "    # System.Out.Println(...)\n"
+                               + c
+                               + "    li   $a0, 10          # salto de línea\n"
+                               + "    li   $v0, 11          # syscall print_char\n"
+                               + "    syscall\n";
+                    :}
+                  ;
+
+contenido_impr  ::= contenido_impr:c MAS parte_impr:p
+                    {:
+                        RESULT = c + p;
+                    :}
+                  | parte_impr:p
+                    {:
+                        RESULT = p;
+                    :}
+                  ;
+
+parte_impr      ::= CADENA:s
+                    {:
+                        String etiqueta = parser.nuevaEtiqueta("texto");
+                        parser.datos.append("    " + etiqueta + ": .asciiz \"" + s + "\"\n");
+                        RESULT = "    la   $a0, " + etiqueta + "\n"
+                               + "    li   $v0, 4           # syscall print_string\n"
+                               + "    syscall\n";
+                    :}
+                  | termino:t
+                    {:
+                        if (t.tipo.equals("boolean")) {
+                            String etTrue = parser.nuevaEtiqueta("impr_true_");
+                            String etFin = parser.nuevaEtiqueta("impr_fin_");
+                            String etTxtTrue = parser.nuevaEtiqueta("txt_true_");
+                            String etTxtFalse = parser.nuevaEtiqueta("txt_false_");
+                            parser.datos.append("    " + etTxtTrue + ": .asciiz \"true\"\n");
+                            parser.datos.append("    " + etTxtFalse + ": .asciiz \"false\"\n");
+                            RESULT = t.codigo
+                                   + "    bnez $t0, " + etTrue + "\n"
+                                   + "    la   $a0, " + etTxtFalse + "\n"
+                                   + "    li   $v0, 4\n"
+                                   + "    syscall\n"
+                                   + "    j    " + etFin + "\n"
+                                   + etTrue + ":\n"
+                                   + "    la   $a0, " + etTxtTrue + "\n"
+                                   + "    li   $v0, 4\n"
+                                   + "    syscall\n"
+                                   + etFin + ":\n";
+                        } else {
+                            RESULT = t.codigo
+                                   + "    move $a0, $t0\n"
+                                   + "    li   $v0, 1           # syscall print_int\n"
+                                   + "    syscall\n";
+                        }
+                    :}
+                  ;
 
 /* ---------- Condicional IF / ELSE ---------- */
 condicional ::= IF LPAREN condicion:c RPAREN bloque:entonces

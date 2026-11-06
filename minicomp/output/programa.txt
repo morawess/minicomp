@@ -1,16 +1,16 @@
-// Declaración múltiple con y sin inicialización
-int i = 1, pares = 0, resto;
-
-System.Out.Println("Analizando numeros del 1 al 6:");
-
-WHILE (i <= 6) {
-    resto = i % 2;
-    IF (resto == 0) {
-        System.Out.Println(i);
-        pares++;
-    }
-    i++;
+boolean flag = true;
+int num = 5;
+int num2 = 10;
+int total = num + num2;
+int otroNum = 3 + 4;
+System.Out.Println("Inicio del Programa");
+System.Out.Println("numero: " + num);
+System.Out.Println("total: " + total);
+System.Out.Println("Otro numero " + otroNum);
+IF (flag){
+    System.Out.Println ("Hola Mundo!");
 }
-
-System.Out.Println("Total de numeros pares encontrados:");
-System.Out.Println(pares);
+ELSE {
+    System.Out.Println ("Error");
+}
+System.Out.Println("Final del Programa");
